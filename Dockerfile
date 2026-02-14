@@ -66,8 +66,15 @@ RUN printf '%s\n' '#!/usr/bin/env bash' 'exec node /openclaw/dist/entry.js "$@"'
 
 COPY src ./src
 
+# Custom skills and workspace personality files for TaskCrush integration.
+# These are synced to the persistent volume (/data/workspace) on boot.
+COPY skills ./skills
+COPY workspace ./workspace
+COPY start.sh ./start.sh
+RUN chmod +x ./start.sh
+
 # The wrapper listens on this port.
 ENV OPENCLAW_PUBLIC_PORT=8080
 ENV PORT=8080
 EXPOSE 8080
-CMD ["node", "src/server.js"]
+CMD ["bash", "/app/start.sh"]

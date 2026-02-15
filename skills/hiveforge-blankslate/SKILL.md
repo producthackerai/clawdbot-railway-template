@@ -1,3 +1,8 @@
+---
+name: hiveforge-blankslate
+description: Monitor and manage the BlankSlate feature request pipeline — stats, requests, pipeline details, changelog, and admin actions (approve/reject/triage)
+---
+
 # HiveForge BlankSlate
 
 Monitor and manage the BlankSlate feature request pipeline through the HiveForge MCP gateway.

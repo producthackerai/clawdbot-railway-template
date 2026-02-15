@@ -1,3 +1,8 @@
+---
+name: hiveforge-goals
+description: List and create TaskCrush goals, track progress, and link tasks to goals
+---
+
 # HiveForge Goals
 
 Manage TaskCrush goals through the HiveForge MCP gateway.

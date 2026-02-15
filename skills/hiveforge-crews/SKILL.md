@@ -1,3 +1,8 @@
+---
+name: hiveforge-crews
+description: Execute HornetHive AI crews for research, content, strategy, and analysis — plus RAG knowledge search
+---
+
 # HiveForge Crews
 
 Execute HornetHive AI crews through the HiveForge MCP gateway.

@@ -1,3 +1,8 @@
+---
+name: hiveforge-tasks
+description: List, create, and update TaskCrush tasks across personal and work workspaces
+---
+
 # HiveForge Tasks
 
 Manage TaskCrush tasks through the HiveForge MCP gateway.

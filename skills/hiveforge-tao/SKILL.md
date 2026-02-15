@@ -1,3 +1,8 @@
+---
+name: hiveforge-tao
+description: Log AI traces and search interaction history via the Tao Data observability platform
+---
+
 # HiveForge Tao Data
 
 Access Tao Data observability platform through the HiveForge MCP gateway.

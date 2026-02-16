@@ -1326,6 +1326,16 @@ proxy.on("error", (err, _req, res) => {
   }
 });
 
+// Password-protect all gateway-proxied routes (/openclaw/*, etc.).
+// Health checks (/healthz, /setup/healthz) and /setup/* are handled by earlier
+// route handlers and never reach this middleware. WebSocket upgrades bypass
+// Express entirely (handled by server.on("upgrade")) and are protected by
+// the gateway's own device-pairing auth.
+app.use((req, res, next) => {
+  if (!isConfigured()) return next(); // let catch-all redirect to /setup
+  return requireSetupAuth(req, res, next);
+});
+
 app.use(async (req, res) => {
   // If not configured, force users to /setup for any non-setup routes.
   if (!isConfigured() && !req.path.startsWith("/setup")) {

@@ -42,6 +42,13 @@ if [ -d "/app/workspace" ]; then
   done
 fi
 
+# Harden credentials dir permissions (fix OpenClaw security audit warning)
+STATE_DIR="${OPENCLAW_STATE_DIR:-/data/.openclaw}"
+if [ -d "$STATE_DIR/credentials" ]; then
+  chmod 700 "$STATE_DIR/credentials"
+  echo "[start.sh] Credentials dir permissions hardened (700)"
+fi
+
 # Non-blocking HiveForge connectivity check
 if [ -n "$HIVEFORGE_API_URL" ]; then
   if curl -sf --max-time 3 "$HIVEFORGE_API_URL/health" > /dev/null 2>&1; then

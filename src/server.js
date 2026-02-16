@@ -238,7 +238,7 @@ async function ensureGatewayRunning() {
       try {
         lastGatewayError = null;
         await startGateway();
-        const ready = await waitForGatewayReady({ timeoutMs: 20_000 });
+        const ready = await waitForGatewayReady({ timeoutMs: 45_000 });
         if (!ready) {
           throw new Error("Gateway did not become ready in time");
         }

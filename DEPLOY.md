@@ -149,3 +149,72 @@ Then test messaging:
 | Railway (OpenClaw service) | $5-10 |
 | Claude API (Haiku + Sonnet) | $10-30 |
 | **Total** | **$15-45** |
+
+## Hardening & Operational Excellence
+
+### DECISIONS.md Gate
+
+All cron jobs and autonomous actions check `workspace/DECISIONS.md` before executing. This is the single most important human override mechanism.
+
+**To pause an automation:**
+Message the bot: "Edit DECISIONS.md and add a hold for morning brief"
+Or SSH into the container and edit `/data/workspace/DECISIONS.md` directly.
+
+**Example hold:**
+```markdown
+## Holds
+- HOLD: morning brief — paused until Monday 2026-02-17
+```
+
+The bot will read DECISIONS.md before every cron execution and skip held actions.
+
+### Model Cascade
+
+Sub-agents default to Haiku 4.5 for cost efficiency. The main agent stays on Opus 4.6 for conversation quality.
+
+| Task Type | Model | Cost (per MTok) |
+|-----------|-------|-----------------|
+| Lookups, status | Haiku 4.5 | $0.25 in / $1.25 out |
+| Triage, reviews | Sonnet 4.5 | $3 in / $15 out |
+| Conversations | Opus 4.6 | $15 in / $75 out |
+
+**Expected cost reduction:** ~40% API costs by routing 80% of sub-agent work through Haiku instead of Opus.
+
+### Registering Cron Jobs
+
+After deployment, message the bot on Telegram to register cron jobs:
+
+```
+Register a cron job:
+- Name: morning-brief
+- Schedule: 0 12 * * 1-5
+- Delivery: announce
+- Description: Morning brief with tasks, goals, pipeline, and GitHub activity
+
+Register a cron job:
+- Name: nightly-cleanup
+- Schedule: 0 5 * * *
+- Delivery: none
+- Description: Flag stuck tasks, check failed builds, log anomalies
+
+Register a cron job:
+- Name: log-rotation
+- Schedule: 30 5 * * *
+- Delivery: none
+- Description: Review sessions, update MEMORY.md, prune stale entries
+```
+
+Verify with: "List my cron jobs"
+
+### Two-Tier Memory
+
+- **MEMORY.md** — Persistent operational memory. Survives deploys (no-clobber in start.sh). Updated nightly by log rotation cron.
+- **Session logs** — Transient. Cleared on restart. Used for immediate context.
+
+### No-Clobber Files
+
+`start.sh` preserves these files across deploys:
+- `DECISIONS.md` — Human overrides persist
+- `MEMORY.md` — Operational memory persists
+
+All other workspace files (AGENTS.md, SOUL.md) are overwritten on deploy to pick up latest changes.

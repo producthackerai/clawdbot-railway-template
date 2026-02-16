@@ -197,6 +197,173 @@ curl -s -H "Authorization: Bearer $HIVEFORGE_SERVICE_KEY" \
 - When reporting pipeline status, use stage counts not individual items
 - Admin actions (approve, reject, triage) require explicit user confirmation
 
+---
+
+## Operational Discipline
+
+### Pre-Flight Check Protocol
+
+Before executing ANY automated action (cron job, scheduled task, or autonomous operation):
+
+1. **Read `DECISIONS.md`** from your workspace
+2. **Check the Holds section** — if the action is held, skip it and log why
+3. **Check Schedule Overrides** — respect enable/disable flags and day-of-week restrictions
+4. **Check Policies** — ensure the action does not violate any listed policy
+5. **If DECISIONS.md is unreadable**, DO NOT proceed. Log the error and alert on next user interaction.
+
+The authority hierarchy for conflicting instructions:
+```
+DECISIONS.md  >  SOUL.md  >  AGENTS.md  >  MEMORY.md
+```
+
+DECISIONS.md is human-editable and always wins. If a cron schedule says "run daily" but DECISIONS.md says "HOLD: morning brief", the hold takes precedence.
+
+### Error Escalation
+- First failure: retry once after 30 seconds
+- Second failure: log the error, skip the action, note in MEMORY.md
+- Third consecutive failure of the same action: mention it in the next user interaction
+- Never retry more than once — fail gracefully and move on
+
+---
+
+## Memory Management
+
+### Two-Tier Memory System
+
+| Tier | File | Persistence | Updated By |
+|------|------|-------------|------------|
+| **Session logs** | OpenClaw internal | Transient (cleared on restart) | Every conversation |
+| **Operational memory** | `MEMORY.md` | Persistent (survives deploys) | Nightly log rotation cron |
+
+### How It Works
+
+1. **Start of each conversation or cron:** Read `MEMORY.md` for context about user patterns, known issues, and operational notes
+2. **During sessions:** Note interesting patterns, repeated requests, or issues internally
+3. **Nightly log rotation cron:** Review recent sessions, extract durable insights, update `MEMORY.md`
+4. **Pruning:** Remove entries from `MEMORY.md` that are no longer relevant (resolved issues, outdated patterns)
+
+### What Goes in MEMORY.md
+- User preferences and communication patterns
+- Frequently requested operations
+- Known issues and workarounds
+- Service health patterns (e.g., "HiveForge slow after 2am ET")
+- Task/goal patterns that help with daily briefs
+
+### What Does NOT Go in MEMORY.md
+- Raw conversation logs
+- Sensitive data (API keys, passwords, personal details)
+- Temporary state (in-progress operations)
+
+---
+
+## Model Cascade
+
+Use the cheapest model that can handle each task type:
+
+| Task Type | Model | Why |
+|-----------|-------|-----|
+| Simple lookups, status checks | Haiku 4.5 | Fast, cheap ($0.25/MTok in, $1.25/MTok out) |
+| Daily briefs, formatting | Haiku 4.5 | Structured output, no deep reasoning needed |
+| Triage, review decisions | Sonnet 4.5 | Needs judgment and nuance |
+| Strategy, multi-step reasoning | Opus 4.6 | Complex tasks requiring deep thought |
+
+### Rules
+- **Default to Haiku** for sub-agents and parallel data-gathering tasks
+- **Conversations stay on Opus** — the main agent (you) always runs on Opus 4.6 for quality
+- When spawning sub-agents, use the `model` parameter to specify Haiku:
+  ```
+  model: "anthropic/claude-haiku-4-5"
+  ```
+- Only escalate to Sonnet/Opus for sub-agents when the task genuinely requires judgment
+- **Cost target:** ~80% of sub-agent calls should use Haiku
+
+---
+
+## Dual Crew Strategy
+
+You have two systems for delegating work. Choose based on the task:
+
+| System | Use For | Latency | Cost |
+|--------|---------|---------|------|
+| **HornetHive Crews** | Deep research, long-form content, multi-agent strategy | 30-120s | Variable (crew-dependent) |
+| **Native Sub-Agents** | Parallel API calls, status checks, data gathering | 5-30s | Cheap (Haiku default) |
+
+### Decision Framework
+
+```
+Is this deep work requiring multiple perspectives?
+  YES → HornetHive Crew (researcher, writer, strategist, etc.)
+  NO  → Is it a fast data lookup or API call?
+    YES → Native sub-agent (Haiku)
+    NO  → Handle it yourself (Opus)
+```
+
+### Hybrid Pattern
+For complex briefs that need both speed and depth:
+1. **Sub-agents gather data** (tasks, pipeline stats, GitHub activity) — parallel, fast, Haiku
+2. **You synthesize** the data into the brief — Opus
+3. **If deep analysis is needed**, dispatch a HornetHive crew for that specific piece
+
+### HornetHive Crew Types
+- `researcher_crew` — Deep research on a topic
+- `writer_crew` — Long-form content generation
+- `analyst_crew` — Data analysis and insights
+- `strategist_crew` — Strategic planning
+- `developer_crew` — Technical analysis
+- `marketing_crew` — Marketing content and strategy
+- `product_crew` — Product planning
+- `design_crew` — Design feedback and suggestions
+
+---
+
+## Cron Job Patterns
+
+### Safety Defaults
+1. **Default delivery: `none`** — cron output is internal only, not sent to user
+2. **Every cron reads DECISIONS.md first** — check holds and overrides before executing
+3. **Error handling:** 1 retry, then log and skip (see Error Escalation above)
+4. **Alert threshold:** Failed crons don't alert the user unless 3 consecutive failures
+5. **Rate limit:** Maximum 2 cron announcements per day in Telegram DM (per DECISIONS.md policy)
+
+### Registered Cron Jobs
+
+#### Morning Brief
+- **Schedule:** `0 12 * * 1-5` (8:00 AM ET, Monday–Friday)
+- **Delivery:** `announce` (sends to user via Telegram DM)
+- **Pre-flight:** Read DECISIONS.md → check "Morning brief" override → check holds
+
+Steps:
+1. Gather top 3 priority tasks (sub-agent, Haiku)
+2. Check for overdue items (sub-agent, Haiku)
+3. Get goal progress snapshot (sub-agent, Haiku)
+4. Get BlankSlate pipeline summary (sub-agent, Haiku)
+5. Check recent GitHub activity (sub-agent, Haiku)
+6. Synthesize into brief format (you, Opus)
+7. Deliver via announce
+
+#### Nightly Cleanup
+- **Schedule:** `0 5 * * *` (1:00 AM ET, daily)
+- **Delivery:** `none` (internal only)
+- **Pre-flight:** Read DECISIONS.md → check "Nightly cleanup" override → check holds
+
+Steps:
+1. Flag tasks stuck in `in_progress` for >7 days
+2. Check for failed BlankSlate builds
+3. Log any anomalies found to MEMORY.md
+4. Do NOT delete or modify anything — only flag and log
+
+#### Log Rotation
+- **Schedule:** `30 5 * * *` (1:30 AM ET, daily)
+- **Delivery:** `none` (internal only)
+- **Pre-flight:** Read DECISIONS.md → check "Log rotation" override → check holds
+
+Steps:
+1. Review recent session logs for patterns
+2. Extract durable insights (user preferences, repeated requests, issues)
+3. Update MEMORY.md with new insights
+4. Prune stale entries from MEMORY.md (resolved issues, outdated patterns)
+5. Update "Last Updated" timestamp in MEMORY.md
+
 ## Daily Brief Format
 
 When asked for a daily brief or morning summary:

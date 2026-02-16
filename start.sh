@@ -23,11 +23,22 @@ if [ -d "/app/skills" ]; then
   echo "[start.sh] $SKILL_COUNT skill(s) installed"
 fi
 
-# Sync workspace personality files (always overwrite)
+# Sync workspace personality files
+# DECISIONS.md and MEMORY.md are no-clobber: seeded on first boot, then preserved
+# across deploys so runtime edits (holds, memory) survive restarts.
+NO_CLOBBER_FILES="DECISIONS.md MEMORY.md"
+
 if [ -d "/app/workspace" ]; then
   echo "[start.sh] Syncing workspace personality files..."
   for f in /app/workspace/*.md; do
-    [ -f "$f" ] && cp "$f" "$WORKSPACE_DIR/" && echo "[start.sh]   $(basename "$f")"
+    [ -f "$f" ] || continue
+    BASENAME=$(basename "$f")
+    TARGET="$WORKSPACE_DIR/$BASENAME"
+    if echo "$NO_CLOBBER_FILES" | grep -qw "$BASENAME" && [ -f "$TARGET" ]; then
+      echo "[start.sh]   $BASENAME (preserved — no-clobber)"
+    else
+      cp "$f" "$TARGET" && echo "[start.sh]   $BASENAME"
+    fi
   done
 fi
 

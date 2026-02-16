@@ -170,15 +170,14 @@ The bot will read DECISIONS.md before every cron execution and skip held actions
 
 ### Model Cascade
 
-Sub-agents default to Haiku 4.5 for cost efficiency. The main agent stays on Opus 4.6 for conversation quality.
+Main agent runs on Sonnet 4.5 for the best balance of quality and cost. Sub-agents use Haiku 4.5.
 
 | Task Type | Model | Cost (per MTok) |
 |-----------|-------|-----------------|
-| Lookups, status | Haiku 4.5 | $0.25 in / $1.25 out |
-| Triage, reviews | Sonnet 4.5 | $3 in / $15 out |
-| Conversations | Opus 4.6 | $15 in / $75 out |
+| Sub-agent lookups, data gathering | Haiku 4.5 | $0.80 in / $4 out |
+| **Main agent conversations + tool use** | **Sonnet 4.5** | **$3 in / $15 out** |
 
-**Expected cost reduction:** ~40% API costs by routing 80% of sub-agent work through Haiku instead of Opus.
+**Why Sonnet over Opus?** Sonnet 4.5 handles tool use, task management, and conversations excellently at 5x lower cost. Opus is only needed for deep multi-step reasoning — not typical assistant workloads.
 
 ### Registering Cron Jobs
 
@@ -218,3 +217,44 @@ Verify with: "List my cron jobs"
 - `MEMORY.md` — Operational memory persists
 
 All other workspace files (AGENTS.md, SOUL.md) are overwritten on deploy to pick up latest changes.
+
+## Multi-Instance / Persona System
+
+### How It Works
+
+The `OPENCLAW_PERSONA` env var controls which SOUL.md personality the instance uses.
+The persona system allows multiple OpenClaw instances to share the same Docker image
+while having different identities.
+
+```
+workspace/
+├── AGENTS.md          ← Shared across all instances
+├── DECISIONS.md       ← Per-instance (no-clobber, preserved across deploys)
+├── MEMORY.md          ← Per-instance (no-clobber, preserved across deploys)
+├── SOUL.md            ← Default identity (overridden by persona)
+└── personas/
+    ├── producthacker/
+    │   └── SOUL.md    ← ProductHackerAI identity
+    ├── cam/
+    │   └── SOUL.md    ← Cam's assistant identity
+    └── jody/
+        └── SOUL.md    ← Jody's assistant identity
+```
+
+### Boot Sequence
+
+1. `start.sh` syncs `workspace/*.md` → `/data/workspace/` (overwrites all except no-clobber)
+2. If `OPENCLAW_PERSONA` is set, syncs `workspace/personas/$PERSONA/*.md` → `/data/workspace/` (overrides defaults)
+3. DECISIONS.md and MEMORY.md are never overwritten if they already exist on the volume
+
+### Adding a New Persona
+
+1. Create `workspace/personas/<name>/SOUL.md` with the desired identity
+2. Set `OPENCLAW_PERSONA=<name>` on the Railway service
+3. Redeploy — the new SOUL.md will be applied on boot
+
+### Environment Variables
+
+| Variable | Default | Purpose |
+|----------|---------|---------|
+| `OPENCLAW_PERSONA` | `producthacker` | Which persona directory to use |

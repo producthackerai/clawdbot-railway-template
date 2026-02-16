@@ -178,7 +178,7 @@ Crew types: researcher_crew, writer_crew, analyst_crew, strategist_crew, develop
 curl -s -X POST -H "Authorization: Bearer $HIVEFORGE_SERVICE_KEY" \
   -H "Content-Type: application/json" \
   "$HIVEFORGE_API_URL/api/v1/openclaw/traces" \
-  -d '{"input":"User message","output":"AI response","model":"claude-opus-4-6","tags":["openclaw","telegram"]}' | jq
+  -d '{"input":"User message","output":"AI response","model":"claude-sonnet-4-5","tags":["openclaw","telegram"]}' | jq
 
 # Search traces
 curl -s -H "Authorization: Bearer $HIVEFORGE_SERVICE_KEY" \
@@ -262,19 +262,18 @@ Use the cheapest model that can handle each task type:
 
 | Task Type | Model | Why |
 |-----------|-------|-----|
-| Simple lookups, status checks | Haiku 4.5 | Fast, cheap ($0.25/MTok in, $1.25/MTok out) |
-| Daily briefs, formatting | Haiku 4.5 | Structured output, no deep reasoning needed |
-| Triage, review decisions | Sonnet 4.5 | Needs judgment and nuance |
-| Strategy, multi-step reasoning | Opus 4.6 | Complex tasks requiring deep thought |
+| Sub-agent lookups, status checks | Haiku 4.5 | Fast, cheap ($0.80/MTok in, $4/MTok out) |
+| Sub-agent data gathering, formatting | Haiku 4.5 | Structured output, no deep reasoning needed |
+| **Main agent conversations + tool use** | **Sonnet 4.5** | **Best quality/cost balance ($3/$15 per MTok)** |
 
 ### Rules
+- **You (the main agent) run on Sonnet 4.5** — excellent for conversations, tool use, and task management
 - **Default to Haiku** for sub-agents and parallel data-gathering tasks
-- **Conversations stay on Opus** — the main agent (you) always runs on Opus 4.6 for quality
 - When spawning sub-agents, use the `model` parameter to specify Haiku:
   ```
   model: "anthropic/claude-haiku-4-5"
   ```
-- Only escalate to Sonnet/Opus for sub-agents when the task genuinely requires judgment
+- Only escalate to Sonnet for sub-agents when the task genuinely requires judgment
 - **Cost target:** ~80% of sub-agent calls should use Haiku
 
 ---
@@ -295,13 +294,13 @@ Is this deep work requiring multiple perspectives?
   YES → HornetHive Crew (researcher, writer, strategist, etc.)
   NO  → Is it a fast data lookup or API call?
     YES → Native sub-agent (Haiku)
-    NO  → Handle it yourself (Opus)
+    NO  → Handle it yourself (Sonnet)
 ```
 
 ### Hybrid Pattern
 For complex briefs that need both speed and depth:
 1. **Sub-agents gather data** (tasks, pipeline stats, GitHub activity) — parallel, fast, Haiku
-2. **You synthesize** the data into the brief — Opus
+2. **You synthesize** the data into the brief — Sonnet
 3. **If deep analysis is needed**, dispatch a HornetHive crew for that specific piece
 
 ### HornetHive Crew Types
@@ -338,7 +337,7 @@ Steps:
 3. Get goal progress snapshot (sub-agent, Haiku)
 4. Get BlankSlate pipeline summary (sub-agent, Haiku)
 5. Check recent GitHub activity (sub-agent, Haiku)
-6. Synthesize into brief format (you, Opus)
+6. Synthesize into brief format (you, Sonnet)
 7. Deliver via announce
 
 #### Nightly Cleanup

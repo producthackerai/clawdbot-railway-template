@@ -42,6 +42,18 @@ if [ -d "/app/workspace" ]; then
   done
 fi
 
+# Persona-specific files override defaults (after main sync, before no-clobber)
+PERSONA="${OPENCLAW_PERSONA:-producthacker}"
+if [ -d "/app/workspace/personas/$PERSONA" ]; then
+  echo "[start.sh] Applying persona: $PERSONA"
+  for f in /app/workspace/personas/$PERSONA/*.md; do
+    [ -f "$f" ] || continue
+    BASENAME=$(basename "$f")
+    TARGET="$WORKSPACE_DIR/$BASENAME"
+    cp "$f" "$TARGET" && echo "[start.sh]   $BASENAME (persona override)"
+  done
+fi
+
 # Harden credentials dir permissions (fix OpenClaw security audit warning)
 STATE_DIR="${OPENCLAW_STATE_DIR:-/data/.openclaw}"
 if [ -d "$STATE_DIR/credentials" ]; then

@@ -222,36 +222,59 @@ All other workspace files (AGENTS.md, SOUL.md) are overwritten on deploy to pick
 
 ### How It Works
 
-The `OPENCLAW_PERSONA` env var controls which SOUL.md personality the instance uses.
-The persona system allows multiple OpenClaw instances to share the same Docker image
-while having different identities.
+The `OPENCLAW_PERSONA` env var controls which personality and configuration each instance uses.
+All instances share the same Docker image but can have different identities, API docs, and skills.
 
 ```
-workspace/
-├── AGENTS.md          ← Shared across all instances
-├── DECISIONS.md       ← Per-instance (no-clobber, preserved across deploys)
-├── MEMORY.md          ← Per-instance (no-clobber, preserved across deploys)
-├── SOUL.md            ← Default identity (overridden by persona)
-└── personas/
+clawdbot-railway-template/
+├── Dockerfile            ← Shared (one image for all bots)
+├── start.sh              ← Shared (reads OPENCLAW_PERSONA at boot)
+├── src/                  ← Shared gateway code
+├── skills/               ← Shared skills (copied to all bots)
+├── workspace/            ← Shared defaults
+│   ├── AGENTS.md         ← Default API docs (overridden by persona)
+│   ├── SOUL.md           ← Default identity (overridden by persona)
+│   ├── DECISIONS.md      ← No-clobber seed
+│   └── MEMORY.md         ← No-clobber seed
+└── bots/                 ← Per-bot overrides
     ├── producthacker/
-    │   └── SOUL.md    ← ProductHackerAI identity
+    │   ├── workspace/    ← SOUL.md, AGENTS.md (optional)
+    │   └── skills/       ← (optional) PH-specific skills
     ├── cam/
-    │   └── SOUL.md    ← Cam's assistant identity
+    │   ├── workspace/    ← Cam's SOUL.md, AGENTS.md (optional)
+    │   └── skills/       ← (optional) Cam-specific skills
     └── jody/
-        └── SOUL.md    ← Jody's assistant identity
+        ├── workspace/    ← Jody's SOUL.md, AGENTS.md (optional)
+        └── skills/       ← (optional) Jody-specific skills
 ```
 
 ### Boot Sequence
 
-1. `start.sh` syncs `workspace/*.md` → `/data/workspace/` (overwrites all except no-clobber)
-2. If `OPENCLAW_PERSONA` is set, syncs `workspace/personas/$PERSONA/*.md` → `/data/workspace/` (overrides defaults)
-3. DECISIONS.md and MEMORY.md are never overwritten if they already exist on the volume
+1. `start.sh` syncs shared `workspace/*.md` → `/data/workspace/` (overwrites all except no-clobber)
+2. `start.sh` syncs shared `skills/` → `/data/workspace/skills/`
+3. If `OPENCLAW_PERSONA` is set, files from `bots/$PERSONA/workspace/` override shared defaults
+4. If persona has a `bots/$PERSONA/skills/` directory, those skills are merged into the shared skills dir
+5. DECISIONS.md and MEMORY.md are never overwritten if they already exist on the volume
 
 ### Adding a New Persona
 
-1. Create `workspace/personas/<name>/SOUL.md` with the desired identity
-2. Set `OPENCLAW_PERSONA=<name>` on the Railway service
-3. Redeploy — the new SOUL.md will be applied on boot
+1. Create `bots/<name>/workspace/SOUL.md` with the desired identity
+2. Optionally add `AGENTS.md` for custom API docs or `skills/` for persona-specific skills
+3. Set `OPENCLAW_PERSONA=<name>` on the Railway service
+4. Redeploy — persona files override shared defaults on boot
+
+### Railway Watch Paths (Selective Redeployment)
+
+Each service only watches its own bot directory. Shared code changes require manual redeploy per service.
+
+| Service | Watch Paths |
+|---------|-------------|
+| `openclaw` | `bots/producthacker/**` |
+| `openclaw-cam` | `bots/cam/**` |
+| `openclaw-jody` | `bots/jody/**` |
+
+Push to `bots/cam/` → only Cam's service redeploys.
+Push to `src/` or `start.sh` → nothing auto-deploys (manually redeploy each when ready).
 
 ### Environment Variables
 

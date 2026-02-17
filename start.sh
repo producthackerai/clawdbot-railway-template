@@ -42,16 +42,27 @@ if [ -d "/app/workspace" ]; then
   done
 fi
 
-# Persona-specific files override defaults (after main sync, before no-clobber)
+# Persona-specific overrides (after main sync)
 PERSONA="${OPENCLAW_PERSONA:-producthacker}"
-if [ -d "/app/workspace/personas/$PERSONA" ]; then
+PERSONA_DIR="/app/bots/$PERSONA/workspace"
+if [ -d "$PERSONA_DIR" ]; then
   echo "[start.sh] Applying persona: $PERSONA"
-  for f in /app/workspace/personas/$PERSONA/*.md; do
+
+  # Override workspace .md files (SOUL.md, AGENTS.md, etc.)
+  for f in "$PERSONA_DIR"/*.md; do
     [ -f "$f" ] || continue
     BASENAME=$(basename "$f")
     TARGET="$WORKSPACE_DIR/$BASENAME"
     cp "$f" "$TARGET" && echo "[start.sh]   $BASENAME (persona override)"
   done
+
+  # Sync persona-specific skills (merge into shared skills dir)
+  PERSONA_SKILLS="/app/bots/$PERSONA/skills"
+  if [ -d "$PERSONA_SKILLS" ]; then
+    echo "[start.sh] Syncing persona skills..."
+    cp -r "$PERSONA_SKILLS/"* "$SKILLS_DIR/" 2>/dev/null || true
+    echo "[start.sh]   Persona skills merged into $SKILLS_DIR"
+  fi
 fi
 
 # Harden credentials dir permissions (fix OpenClaw security audit warning)

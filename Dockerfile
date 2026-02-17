@@ -70,6 +70,7 @@ COPY src ./src
 # These are synced to the persistent volume (/data/workspace) on boot.
 COPY skills ./skills
 COPY workspace ./workspace
+COPY bots ./bots
 COPY start.sh ./start.sh
 RUN chmod +x ./start.sh
 

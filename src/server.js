@@ -1163,6 +1163,31 @@ app.post("/setup/api/console/run", requireSetupAuth, async (req, res) => {
         lines.push(`auth-profiles.json: error reading: ${String(err)}`);
       }
 
+      // DNS check
+      try {
+        const dns = await import("node:dns");
+        const { resolve4 } = dns.promises || dns;
+        const addrs = await resolve4("api.anthropic.com");
+        lines.push(`\nDNS api.anthropic.com: ${addrs.join(", ")}`);
+      } catch (err) {
+        lines.push(`\nDNS api.anthropic.com: FAILED (${String(err)})`);
+      }
+
+      // TCP connect check
+      try {
+        const net = await import("node:net");
+        const tcpOk = await new Promise((resolve) => {
+          const sock = net.createConnection({ host: "api.anthropic.com", port: 443, timeout: 5000 });
+          const done = (ok) => { try { sock.destroy(); } catch {} resolve(ok); };
+          sock.on("connect", () => done(true));
+          sock.on("timeout", () => done(false));
+          sock.on("error", () => done(false));
+        });
+        lines.push(`TCP api.anthropic.com:443: ${tcpOk ? "OK" : "FAILED"}`);
+      } catch (err) {
+        lines.push(`TCP api.anthropic.com:443: FAILED (${String(err)})`);
+      }
+
       // Try a minimal API call
       const model = arg || "claude-sonnet-4-5-20250929";
       const testKey = key;
@@ -1195,6 +1220,8 @@ app.post("/setup/api/console/run", requireSetupAuth, async (req, res) => {
         lines.push(`  Response: ${body.slice(0, 500)}`);
       } catch (err) {
         lines.push(`\nAPI test FAILED: ${String(err)}`);
+        if (err.cause) lines.push(`  Cause: ${String(err.cause)}`);
+        if (err.code) lines.push(`  Code: ${err.code}`);
       }
 
       return res.json({ ok: true, output: lines.join("\n") });

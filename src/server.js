@@ -521,6 +521,7 @@ app.get("/setup", requireSetupAuth, (_req, res) => {
 
     <div style="display:flex; gap:0.5rem; align-items:center">
       <select id="consoleCmd" style="flex: 1">
+        <option value="gateway.test-api">gateway.test-api (test Anthropic API from container)</option>
         <option value="gateway.restart">gateway.restart (wrapper-managed)</option>
         <option value="gateway.stop">gateway.stop (wrapper-managed)</option>
         <option value="gateway.start">gateway.start (wrapper-managed)</option>
@@ -529,6 +530,7 @@ app.get("/setup", requireSetupAuth, (_req, res) => {
         <option value="openclaw.doctor">openclaw doctor</option>
         <option value="openclaw.logs.tail">openclaw logs --tail N</option>
         <option value="openclaw.config.get">openclaw config get &lt;path&gt;</option>
+        <option value="openclaw.config.set">openclaw config set &lt;path&gt; &lt;value&gt;</option>
         <option value="openclaw.version">openclaw --version</option>
         <option value="openclaw.devices.list">openclaw devices list</option>
         <option value="openclaw.devices.approve">openclaw devices approve &lt;requestId&gt;</option>

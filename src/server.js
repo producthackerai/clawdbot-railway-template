@@ -143,6 +143,24 @@ let lastGatewayExit = null;
 let lastDoctorOutput = null;
 let lastDoctorAt = null;
 
+// ── Watchdog ────────────────────────────────────────────────────────────────
+// Detects two failure modes:
+//   1. Gateway process exited but nothing triggered ensureGatewayRunning()
+//      (common for polling-only bots with no web traffic).
+//   2. Gateway is alive but the container lost outbound network connectivity,
+//      leaving the bot in a long exponential-backoff loop. Restarting resets
+//      internal connection state so it reconnects immediately when the network
+//      recovers.
+const WATCHDOG_INTERVAL_MS = Number(process.env.WATCHDOG_INTERVAL_MS) || 30_000;
+const WATCHDOG_FAIL_THRESHOLD = Number(process.env.WATCHDOG_FAIL_THRESHOLD) || 5;
+const WATCHDOG_OUTBOUND_TIMEOUT_MS = 5_000;
+const WATCHDOG_RESTART_COOLDOWN_MS = 5 * 60 * 1000;
+
+let watchdogTimer = null;
+let watchdogConsecutiveFailures = 0;
+let watchdogLastRestart = null;
+let watchdogTotalRestarts = 0;
+
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
@@ -254,6 +272,7 @@ async function ensureGatewayRunning() {
     });
   }
   await gatewayStarting;
+  startWatchdog(); // idempotent — ensures watchdog runs whenever gateway is up
   return { ok: true };
 }
 
@@ -269,6 +288,96 @@ async function restartGateway() {
     gatewayProc = null;
   }
   return ensureGatewayRunning();
+}
+
+// ── Watchdog implementation ─────────────────────────────────────────────────
+
+async function checkOutboundConnectivity() {
+  const net = await import("node:net");
+  return new Promise((resolve) => {
+    const sock = net.createConnection({
+      host: "api.telegram.org",
+      port: 443,
+      timeout: WATCHDOG_OUTBOUND_TIMEOUT_MS,
+    });
+    const done = (ok) => {
+      try { sock.destroy(); } catch {}
+      resolve(ok);
+    };
+    sock.on("connect", () => done(true));
+    sock.on("timeout", () => done(false));
+    sock.on("error", () => done(false));
+  });
+}
+
+async function watchdogTick() {
+  if (!isConfigured()) return;
+
+  // Case 1: Gateway process exited — auto-restart it.
+  if (!gatewayProc && !gatewayStarting) {
+    console.warn("[watchdog] gateway not running; attempting auto-restart");
+    try {
+      await ensureGatewayRunning();
+      console.log("[watchdog] gateway auto-restarted after exit");
+    } catch (err) {
+      console.error(`[watchdog] auto-restart failed: ${String(err)}`);
+    }
+    return;
+  }
+
+  // Case 2: Gateway alive — check outbound connectivity.
+  const networkOk = await checkOutboundConnectivity();
+  if (networkOk) {
+    if (watchdogConsecutiveFailures > 0) {
+      console.log(`[watchdog] network recovered after ${watchdogConsecutiveFailures} consecutive failures`);
+    }
+    watchdogConsecutiveFailures = 0;
+    return;
+  }
+
+  watchdogConsecutiveFailures++;
+  console.warn(
+    `[watchdog] outbound connectivity check failed (${watchdogConsecutiveFailures}/${WATCHDOG_FAIL_THRESHOLD})`,
+  );
+
+  if (watchdogConsecutiveFailures >= WATCHDOG_FAIL_THRESHOLD) {
+    const now = Date.now();
+    if (watchdogLastRestart && (now - watchdogLastRestart) < WATCHDOG_RESTART_COOLDOWN_MS) {
+      console.warn("[watchdog] restart skipped — cooldown active (5 min between restarts)");
+      return;
+    }
+
+    console.warn("[watchdog] restarting gateway — sustained network failure detected");
+    watchdogConsecutiveFailures = 0;
+    watchdogLastRestart = now;
+    watchdogTotalRestarts++;
+    try {
+      await restartGateway();
+      console.log("[watchdog] gateway restarted successfully");
+    } catch (err) {
+      console.error(`[watchdog] gateway restart failed: ${String(err)}`);
+    }
+  }
+}
+
+function startWatchdog() {
+  if (watchdogTimer) return;
+  watchdogTimer = setInterval(() => {
+    watchdogTick().catch((err) => {
+      console.error(`[watchdog] tick error: ${String(err)}`);
+    });
+  }, WATCHDOG_INTERVAL_MS);
+  watchdogTimer.unref?.(); // Don't prevent process exit
+  console.log(
+    `[watchdog] started (interval=${WATCHDOG_INTERVAL_MS}ms, threshold=${WATCHDOG_FAIL_THRESHOLD}, cooldown=${WATCHDOG_RESTART_COOLDOWN_MS}ms)`,
+  );
+}
+
+function stopWatchdog() {
+  if (watchdogTimer) {
+    clearInterval(watchdogTimer);
+    watchdogTimer = null;
+  }
 }
 
 function requireSetupAuth(req, res, next) {
@@ -350,6 +459,12 @@ app.get("/healthz", async (_req, res) => {
       lastError: lastGatewayError,
       lastExit: lastGatewayExit,
       lastDoctorAt,
+    },
+    watchdog: {
+      running: Boolean(watchdogTimer),
+      consecutiveFailures: watchdogConsecutiveFailures,
+      totalRestarts: watchdogTotalRestarts,
+      lastRestart: watchdogLastRestart ? new Date(watchdogLastRestart).toISOString() : null,
     },
   });
 });
@@ -917,6 +1032,15 @@ app.get("/setup/api/debug", requireSetupAuth, async (_req, res) => {
       lastDoctorOutput,
       railwayCommit: process.env.RAILWAY_GIT_COMMIT_SHA || null,
     },
+    watchdog: {
+      running: Boolean(watchdogTimer),
+      intervalMs: WATCHDOG_INTERVAL_MS,
+      failThreshold: WATCHDOG_FAIL_THRESHOLD,
+      cooldownMs: WATCHDOG_RESTART_COOLDOWN_MS,
+      consecutiveFailures: watchdogConsecutiveFailures,
+      totalRestarts: watchdogTotalRestarts,
+      lastRestart: watchdogLastRestart ? new Date(watchdogLastRestart).toISOString() : null,
+    },
     openclaw: {
       entry: OPENCLAW_ENTRY,
       node: OPENCLAW_NODE,
@@ -977,6 +1101,7 @@ const ALLOWED_CONSOLE_COMMANDS = new Set([
   "openclaw.doctor",
   "openclaw.logs.tail",
   "openclaw.config.get",
+  "openclaw.config.set",
 
   // Device management (for fixing "disconnected (1008): pairing required")
   "openclaw.devices.list",
@@ -1038,6 +1163,21 @@ app.post("/setup/api/console/run", requireSetupAuth, async (req, res) => {
     if (cmd === "openclaw.config.get") {
       if (!arg) return res.status(400).json({ ok: false, error: "Missing config path" });
       const r = await runCmd(OPENCLAW_NODE, clawArgs(["config", "get", arg]));
+      return res.status(r.code === 0 ? 200 : 500).json({ ok: r.code === 0, output: redactSecrets(r.output) });
+    }
+    if (cmd === "openclaw.config.set") {
+      if (!arg) return res.status(400).json({ ok: false, error: "Missing config path and value (e.g. agents.defaults.model.primary anthropic/claude-sonnet-4-5)" });
+      // arg format: "config.path value" or "config.path --json {\"key\":\"val\"}"
+      const parts = arg.split(/\s+/);
+      if (parts.length < 2) return res.status(400).json({ ok: false, error: "Need both config path and value" });
+      const cfgPath = parts[0];
+      const isJson = parts[1] === "--json";
+      const cfgValue = isJson ? parts.slice(2).join(" ") : parts.slice(1).join(" ");
+      if (!cfgValue) return res.status(400).json({ ok: false, error: "Missing value" });
+      const args = isJson
+        ? ["config", "set", "--json", cfgPath, cfgValue]
+        : ["config", "set", cfgPath, cfgValue];
+      const r = await runCmd(OPENCLAW_NODE, clawArgs(args));
       return res.status(r.code === 0 ? 200 : 500).json({ ok: r.code === 0, output: redactSecrets(r.output) });
     }
 
@@ -1408,6 +1548,7 @@ server.on("upgrade", async (req, socket, head) => {
 });
 
 process.on("SIGTERM", () => {
+  stopWatchdog();
   // Best-effort shutdown
   try {
     if (gatewayProc) gatewayProc.kill("SIGTERM");

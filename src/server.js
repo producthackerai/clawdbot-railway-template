@@ -1093,6 +1093,7 @@ const ALLOWED_CONSOLE_COMMANDS = new Set([
   "gateway.restart",
   "gateway.stop",
   "gateway.start",
+  "gateway.test-api",
 
   // OpenClaw CLI helpers
   "openclaw.version",
@@ -1137,6 +1138,64 @@ app.post("/setup/api/console/run", requireSetupAuth, async (req, res) => {
     if (cmd === "gateway.start") {
       const r = await ensureGatewayRunning();
       return res.json({ ok: Boolean(r.ok), output: r.ok ? "Gateway started.\n" : `Gateway not started: ${r.reason}\n` });
+    }
+
+    if (cmd === "gateway.test-api") {
+      // Diagnostic: test Anthropic API connectivity from inside the container.
+      const key = process.env.ANTHROPIC_API_KEY || "";
+      const lines = [];
+      lines.push(`ANTHROPIC_API_KEY env var: ${key ? `set (${key.slice(0, 10)}...${key.slice(-4)}, len=${key.length})` : "NOT SET"}`);
+
+      // Also check the auth-profiles file
+      const authFile = path.join(STATE_DIR, "agents", "main", "auth-profiles.json");
+      try {
+        if (fs.existsSync(authFile)) {
+          const raw = fs.readFileSync(authFile, "utf8");
+          lines.push(`auth-profiles.json: exists (${raw.length} bytes)`);
+          // Redact but show structure
+          lines.push(`auth-profiles.json content: ${redactSecrets(raw)}`);
+        } else {
+          lines.push("auth-profiles.json: NOT FOUND");
+        }
+      } catch (err) {
+        lines.push(`auth-profiles.json: error reading: ${String(err)}`);
+      }
+
+      // Try a minimal API call
+      const model = arg || "claude-sonnet-4-5-20250929";
+      const testKey = key;
+      if (!testKey) {
+        lines.push("\nCannot test API: no ANTHROPIC_API_KEY set.");
+        return res.json({ ok: false, output: lines.join("\n") });
+      }
+
+      try {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 15_000);
+        const apiRes = await fetch("https://api.anthropic.com/v1/messages", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-api-key": testKey,
+            "anthropic-version": "2023-06-01",
+          },
+          body: JSON.stringify({
+            model,
+            max_tokens: 5,
+            messages: [{ role: "user", content: "hi" }],
+          }),
+          signal: controller.signal,
+        });
+        clearTimeout(timeout);
+        const body = await apiRes.text();
+        lines.push(`\nAPI test (${model}):`);
+        lines.push(`  HTTP ${apiRes.status}`);
+        lines.push(`  Response: ${body.slice(0, 500)}`);
+      } catch (err) {
+        lines.push(`\nAPI test FAILED: ${String(err)}`);
+      }
+
+      return res.json({ ok: true, output: lines.join("\n") });
     }
 
     if (cmd === "openclaw.version") {
